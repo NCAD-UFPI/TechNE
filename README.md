@@ -1,4 +1,4 @@
-# 📄 Cluster HPC TECHNE — Documentação Técnica Completa
+# 📄 Cluster HPC TECHNE — Documentação Técnica
 
 Este repositório documenta a arquitetura, infraestrutura, guias de treinamento e pipeline de monitoramento do **Cluster HPC TECHNE**, centro de pesquisa focado em Inteligência Artificial e Processamento de Alto Desempenho (HPC) do Núcleo de Computação de Alto Desempenho (NCAD) da Universidade Federal do Piauí (UFPI).
 
