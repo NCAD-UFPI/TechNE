@@ -6,8 +6,10 @@ para aproveitar múltiplas GPUs em paralelo.
 
 Uso:
     torchrun --nproc_per_node=2 train.py
+    torchrun --nproc_per_node=2 train.py --target-seconds 540
 """
 
+import argparse
 import os
 import time
 import torch
@@ -19,6 +21,30 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torchvision
 import torchvision.transforms as transforms
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Treino DDP (CIFAR-10) com opcional carga extra na GPU.")
+    p.add_argument("--epochs", type=int, default=5, help="Numero de epocas de treino (default: 5).")
+    p.add_argument(
+        "--target-seconds",
+        type=int,
+        default=0,
+        help="Se > 0, garante execucao aproximada ate esse tempo total (s), adicionando carga extra na GPU no final.",
+    )
+    p.add_argument(
+        "--burn-mat-dim",
+        type=int,
+        default=4096,
+        help="Dimensao da matriz (quadrada) usada na carga extra de GPU (default: 4096).",
+    )
+    p.add_argument(
+        "--burn-log-every",
+        type=int,
+        default=15,
+        help="Intervalo (s) para imprimir progresso durante a carga extra (default: 15).",
+    )
+    return p.parse_args()
 
 
 def setup_distributed():
@@ -143,7 +169,45 @@ def evaluate(model, test_loader, criterion, local_rank):
     return test_loss / len(test_loader), 100.0 * correct / total
 
 
+def burn_gpu(seconds, local_rank, rank, mat_dim=4096, log_every=15):
+    """
+    Mantem a GPU ocupada por ~seconds, para permitir avaliar logs/monitoramento.
+    Cada processo (uma GPU) executa multiplicacoes de matrizes no proprio device.
+    """
+    if seconds <= 0:
+        return
+
+    device = torch.device(f"cuda:{local_rank}")
+    dtype = torch.float16
+
+    # Mantem alocacao pequena o bastante para caber com folga em 32G.
+    with torch.no_grad():
+        a = torch.randn((mat_dim, mat_dim), device=device, dtype=dtype)
+        b = torch.randn((mat_dim, mat_dim), device=device, dtype=dtype)
+
+        start = time.time()
+        next_log = start
+        it = 0
+        while True:
+            # Matmul usa Tensor Cores (fp16) e consome GPU de forma previsivel.
+            c = a @ b
+            a = c  # reusa para evitar alocar infinitamente
+            it += 1
+
+            # Evita que o loop seja apenas enfileiramento de kernels.
+            torch.cuda.synchronize(device)
+            now = time.time()
+            if now - start >= seconds:
+                break
+            if rank == 0 and now >= next_log:
+                elapsed = now - start
+                print(f"🔥 burn_gpu: {elapsed:.0f}/{seconds}s (iters={it}, dim={mat_dim})", flush=True)
+                next_log = now + max(1, log_every)
+
+
 def main():
+    args = parse_args()
+
     # ─── Configuração Distribuída ───────────────────────────────────────
     local_rank = setup_distributed()
     rank = dist.get_rank()
@@ -157,7 +221,7 @@ def main():
         print("=" * 60)
 
     # ─── Hiperparâmetros ────────────────────────────────────────────────
-    NUM_EPOCHS = 5
+    NUM_EPOCHS = args.epochs
     BATCH_SIZE = 128
     LEARNING_RATE = 0.01
     MOMENTUM = 0.9
@@ -249,6 +313,22 @@ def main():
         print(f"  🏆 Melhor Accuracy: {best_acc:.2f}%")
         print(f"  💾 Checkpoint salvo em: outputs/melhor_modelo.pth")
         print(f"{'=' * 60}")
+
+    # Se a execucao terminou "rapido demais", adiciona carga extra na GPU para
+    # permitir observar logs/monitoramento durante alguns minutos.
+    if args.target_seconds and args.target_seconds > 0:
+        remaining = int(args.target_seconds - (time.time() - start_time))
+        if remaining > 0:
+            if rank == 0:
+                print(f"\n⏳ Mantendo carga extra na GPU por ~{remaining}s para avaliacao...", flush=True)
+            burn_gpu(
+                remaining,
+                local_rank=local_rank,
+                rank=rank,
+                mat_dim=args.burn_mat_dim,
+                log_every=args.burn_log_every,
+            )
+            dist.barrier()
 
     cleanup()
 

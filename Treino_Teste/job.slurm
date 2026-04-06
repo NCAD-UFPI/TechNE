@@ -4,6 +4,8 @@
 #                      Cluster TechNE - UFPI
 ###############################################################################
 
+set -euo pipefail
+
 # ─── IDENTIFICAÇÃO DO JOB ───────────────────────────────────────────────────
 # Define o nome do job que aparecerá nos comandos de monitoramento (squeue, sacct)
 #SBATCH --job-name=treino-nn
@@ -64,6 +66,9 @@ mkdir -p outputs logs
 # Mostra informações das GPUs disponíveis
 nvidia-smi
 
+# Garante log "ao vivo" (tail -f) sem buffering excessivo do Python.
+export PYTHONUNBUFFERED=1
+
 # ─── EXECUÇÃO DO TREINO ────────────────────────────────────────────────────
 # Usa 'torchrun' para lançar o treinamento distribuído.
 #
@@ -75,7 +80,11 @@ nvidia-smi
 #   - MASTER_ADDR e MASTER_PORT: endereço para comunicação entre processos
 #
 # train.py → Script principal de treino que utiliza PyTorch DDP
-torchrun --nproc_per_node=2 train.py
+#
+# --target-seconds=540 → Mantem o job ocupado por ~9 minutos mesmo se o treino
+# for muito rapido (ajuda a avaliar monitoramento/logs). O wall-time do SLURM
+# continua em 10 minutos.
+torchrun --nproc_per_node=2 train.py --epochs 5 --target-seconds 540
 
 echo ""
 echo "========================================"

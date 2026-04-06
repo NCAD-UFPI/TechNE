@@ -17,7 +17,7 @@
 > Acessamos o nó de login via SSH.
 
 ```bash
-ssh aluno_cielio@10.94.80.13
+ssh aluno_cielio@10.94.80.10
 ```
 
 ---
@@ -36,22 +36,30 @@ ls -la
 
 ---
 
-## Etapa 3 — Envio dos Arquivos (executar na máquina local)
+## Etapa 3 — Obtendo os Arquivos no Cluster
 
-> Abrir **outro terminal local** e enviar a pasta para o cluster.
+> Clonar o repositório direto no cluster (já logado via SSH):
 
 ```bash
-scp -r ./Treino_Teste aluno_cielio@10.94.80.13:/home/aluno_cielio/
+git clone https://github.com/NCAD-UFPI/TechNE.git
 ```
 
-> Voltar ao terminal SSH e verificar:
-
 ```bash
-cd Treino_Teste
+cd TechNE/Treino_Teste
 ```
 
 ```bash
 ls -la
+```
+
+> **Alternativa** (se preferir enviar da máquina local via `rsync`, abrir outro terminal):
+
+```bash
+# (Opcional) apagar a pasta antiga no cluster antes de reenviar
+ssh aluno_cielio@10.94.80.10 "rm -rf /home/aluno_cielio/Treino_Teste"
+
+# Envio da pasta (foi o comando usado)
+rsync -avz /Users/francieliocastro/Developer/Cluster/Treino_Teste/ aluno_cielio@10.94.80.10:/home/aluno_cielio/Treino_Teste
 ```
 
 ---
@@ -90,6 +98,13 @@ sbatch job.slurm
 
 > Saída esperada: `Submitted batch job <JOB_ID>`
 
+> Dica: para já capturar o `JOB_ID` em uma variável e facilitar o tail:
+
+```bash
+JOB_ID=$(sbatch job.slurm | awk '{print $4}')
+echo "JOB_ID=$JOB_ID"
+```
+
 ### Resumo do `job.slurm`:
 
 | Diretiva                       | Função                                         |
@@ -123,13 +138,13 @@ squeue -u aluno_cielio
 > Acompanhar logs em tempo real (Ctrl+C para sair):
 
 ```bash
-tail -f logs/treino_*.out
+tail -F logs/treino_${JOB_ID}.out
 ```
 
 > Ver erros (se houver):
 
 ```bash
-tail -f logs/treino_*.err
+tail -F logs/treino_${JOB_ID}.err
 ```
 
 ---
@@ -168,18 +183,17 @@ scancel <JOB_ID>
 
 | Componente          | Hostname     | IP           | Hardware                             |
 | ------------------- | ------------ | ------------ | ------------------------------------ |
-| **Nó de Controle**  | slurm-master | 10.94.80.10  | Gerencia agendamento de jobs         |
+| **Nó de Login / Master** | slurm-master | 10.94.80.10  | Gerencia agendamento de jobs e acesso SSH |
 | **GPU Node 01**     | gpunode01    | 10.94.80.11  | 16 CPUs, ~63 GB RAM, **2x L4**      |
 | **GPU Node 02**     | gpunode02    | 10.94.80.12  | 12 CPUs, ~31 GB RAM, **1x L4**      |
-| **Nó de Login**     | (llmnode01)  | 10.94.80.13  | Ponto de acesso SSH                  |
 
 ### Partições
 
 | Partição  | Tempo Max | Acesso (Accounts)                          | Prioridade     | Uso                                |
 | --------- | --------- | ------------------------------------------ | -------------- | ---------------------------------- |
-| **debug** | 30 min    | `ncad`                                     | 🔴 100 (Alta)  | Testes rápidos e depuração         |
-| **gpu**   | 2 dias    | `lab_andre`, `lab_gavelino`, `lab_romuere`  | 🟡 50 (Média)  | Treinos regulares dos laboratórios |
-| **long**  | 7 dias    | Grupo `professores`                        | 🟢 10 (Baixa)  | Treinos longos de professores      |
+| **debug** | 30 min       | `ncad`                                     | 🔴 100 (Alta)  | Testes rápidos e depuração         |
+| **gpu**   | 2 dias       | `lab_andre`, `lab_gavelino`, `lab_romuere`  | 🟡 50 (Média)  | Treinos regulares dos laboratórios |
+| **long**  | 7 dias       | Grupo `professores`                        | 🟢 10 (Baixa)  | Treinos longos de professores      |
 
 ### Diagrama de Agendamento
 
@@ -220,18 +234,20 @@ scancel <JOB_ID>
 
 ```bash
 # 1. Login
-ssh aluno_cielio@10.94.80.13
+ssh aluno_cielio@10.94.80.10
 
 # 2. Conferir diretório
 pwd
 ls -la
 
-# 3. Envio (executar na máquina LOCAL)
-scp -r ./Treino_Teste aluno_cielio@10.94.80.13:/home/aluno_cielio/
-
-# 3b. Voltar ao SSH e entrar na pasta
-cd Treino_Teste
+# 3. Clonar repositório (dentro do SSH)
+git clone https://github.com/NCAD-UFPI/TechNE.git
+cd TechNE/Treino_Teste
 ls -la
+
+# 3b. (Alternativa) reenviar da maquina local via rsync
+# ssh aluno_cielio@10.94.80.10 "rm -rf /home/aluno_cielio/Treino_Teste"
+# rsync -avz /Users/francieliocastro/Developer/Cluster/Treino_Teste/ aluno_cielio@10.94.80.10:/home/aluno_cielio/Treino_Teste
 
 # 4. Verificar nós
 sinfo
@@ -239,13 +255,14 @@ scontrol show nodes
 scontrol show node gpunode01
 
 # 5. Submeter job
-sbatch job.slurm
+JOB_ID=$(sbatch job.slurm | awk '{print $4}')
+echo "JOB_ID=$JOB_ID"
 
 # 6. Monitorar
 squeue
 squeue -u aluno_cielio
-tail -f logs/treino_*.out
-tail -f logs/treino_*.err
+tail -F logs/treino_${JOB_ID}.out
+tail -F logs/treino_${JOB_ID}.err
 
 # 7. Resultados
 cat logs/treino_*.out
