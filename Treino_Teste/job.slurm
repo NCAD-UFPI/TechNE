@@ -69,6 +69,10 @@ nvidia-smi
 # Garante log "ao vivo" (tail -f) sem buffering excessivo do Python.
 export PYTHONUNBUFFERED=1
 
+# ─── CORREÇÃO IMPORTANTE PARA CUDA ─────────────────────────────────────────
+# Sem isso, o PyTorch desse cluster não consegue encontrar as bibliotecas do CUDA!
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu
+
 # ─── EXECUÇÃO DO TREINO ────────────────────────────────────────────────────
 # Usa 'torchrun' para lançar o treinamento distribuído.
 #
