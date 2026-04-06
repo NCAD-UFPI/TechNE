@@ -93,6 +93,16 @@ scontrol show node gpunode01
 > Submeter o treino distribuído.
 
 ```bash
+# Garantir pastas de saida antes da submissao
+mkdir -p logs outputs
+```
+
+```bash
+# Validacao rapida do script sem submeter (mostra erro de account/particao)
+sbatch --test-only job.slurm
+```
+
+```bash
 sbatch job.slurm
 ```
 
@@ -111,12 +121,12 @@ echo "JOB_ID=$JOB_ID"
 | ------------------------------ | ---------------------------------------------- |
 | `--job-name=treino-nn`         | Nome de identificação do job                   |
 | `--partition=debug`            | Fila de execução (max 30min, prioridade alta)  |
+| `--account=ncad`               | Conta exigida para usar a partição `debug`     |
 | `--nodelist=gpunode01`         | Nó com 2x GPU NVIDIA L4                        |
 | `--gres=gpu:2`                 | Solicita 2 GPUs                                |
 | `--mem=32G`                    | Reserva 32 GB de RAM                           |
 | `--time=00:10:00`              | Limite de 10 minutos                           |
-| `--output=logs/treino_%j.out`  | Log stdout (%j = Job ID)                       |
-| `--error=logs/treino_%j.err`   | Log stderr (%j = Job ID)                       |
+| `exec ... tee logs/treino_...` | Log principal em `logs/` para acompanhar com `tail -F` |
 | `torchrun --nproc_per_node=2`  | Lança 2 processos (1 por GPU) com DDP          |
 
 ---
@@ -135,6 +145,12 @@ squeue
 squeue -u aluno_cielio
 ```
 
+> Se o job sumir rapido do `squeue`, verificar estado final imediatamente:
+
+```bash
+sacct -j ${JOB_ID} --format=JobID,JobName,Partition,State,ExitCode,Elapsed,NodeList -P
+```
+
 > Acompanhar logs em tempo real (Ctrl+C para sair):
 
 ```bash
@@ -145,6 +161,18 @@ tail -F logs/treino_${JOB_ID}.out
 
 ```bash
 tail -F logs/treino_${JOB_ID}.err
+```
+
+> O `job.slurm` atual tem fallback: se `torchrun` falhar/nao existir, ele fica ~9m30s em modo keepalive, imprimindo heartbeat e `nvidia-smi` no log para garantir monitoramento da execucao.
+
+> Se o `sbatch` falhar antes de entrar na fila, diagnosticar motivo:
+
+```bash
+sbatch --test-only job.slurm
+```
+
+```bash
+sacctmgr show assoc user=aluno_cielio format=Account,User,Cluster
 ```
 
 ---
@@ -255,6 +283,8 @@ scontrol show nodes
 scontrol show node gpunode01
 
 # 5. Submeter job
+mkdir -p logs outputs
+sbatch --test-only job.slurm
 JOB_ID=$(sbatch job.slurm | awk '{print $4}')
 echo "JOB_ID=$JOB_ID"
 
