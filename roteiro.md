@@ -88,9 +88,9 @@ scontrol show node gpunode01
 
 ---
 
-## Etapa 5 — Submissão do Job (Sem Instalar Nada)
+## Etapa 5 — Submissão do Job
 
-> Submeter em **modo demo rapido** (padrao atual), sem instalar pacote nenhum.
+> Submeter o treino distribuído.
 
 ```bash
 # Garantir pastas de saida antes da submissao
@@ -108,8 +108,6 @@ sbatch job.slurm
 
 > Saída esperada: `Submitted batch job <JOB_ID>`
 
-> O `job.slurm` atual ja vem com `DEMO_MODE=1` por padrao, entao ele roda mesmo sem Python/PyTorch instalado.
-
 > Dica: para já capturar o `JOB_ID` em uma variável e facilitar o tail:
 
 ```bash
@@ -117,27 +115,19 @@ JOB_ID=$(sbatch job.slurm | awk '{print $4}')
 echo "JOB_ID=$JOB_ID"
 ```
 
-> Opcional (se voce quiser tentar treino real e o ambiente ja tiver torchrun):
-
-```bash
-JOB_ID=$(sbatch --export=ALL,DEMO_MODE=0,TARGET_SECONDS=240 job.slurm | awk '{print $4}')
-echo "JOB_ID=$JOB_ID"
-```
-
-### Resumo do `job.slurm` (versao para demo agil):
+### Resumo do `job.slurm`:
 
 | Diretiva                       | Função                                         |
 | ------------------------------ | ---------------------------------------------- |
-| `--job-name=demo-nn`           | Nome de identificação do job                   |
+| `--job-name=treino-nn`         | Nome de identificação do job                   |
 | `--partition=debug`            | Fila de execução (max 30min, prioridade alta)  |
 | `--account=ncad`               | Conta exigida para usar a partição `debug`     |
-| `--nodelist` omitido           | Scheduler escolhe o nó automaticamente         |
-| `--gres=gpu:1`                 | Solicita 1 GPU (mais fácil de agendar)         |
+| `--nodelist=gpunode01`         | Nó com 2x GPU NVIDIA L4                        |
+| `--gres=gpu:2`                 | Solicita 2 GPUs                                |
 | `--mem=32G`                    | Reserva 32 GB de RAM                           |
-| `--time=00:05:00`              | Limite de 5 minutos                            |
+| `--time=00:10:00`              | Limite de 10 minutos                           |
 | `exec ... tee logs/treino_...` | Log principal em `logs/` para acompanhar com `tail -F` |
-| `DEMO_MODE=1` (padrão)         | Roda heartbeat + status de GPU, sem dependências |
-| `DEMO_MODE=0`                  | Tenta `torchrun` se o ambiente já estiver pronto |
+| `torchrun --nproc_per_node=2`  | Lança 2 processos (1 por GPU) com DDP          |
 
 ---
 
@@ -173,7 +163,7 @@ tail -F logs/treino_${JOB_ID}.out
 tail -F logs/treino_${JOB_ID}.err
 ```
 
-> O `job.slurm` atual foi feito para demo: por padrao ele fica em keepalive com heartbeat e `nvidia-smi`, sem exigir instalacao. Se tentar treino e falhar, volta automaticamente para keepalive.
+> O `job.slurm` atual tem fallback: se `torchrun` falhar/nao existir, ele fica ~9m30s em modo keepalive, imprimindo heartbeat e `nvidia-smi` no log para garantir monitoramento da execucao.
 
 > Se o `sbatch` falhar antes de entrar na fila, diagnosticar motivo:
 
@@ -297,10 +287,6 @@ mkdir -p logs outputs
 sbatch --test-only job.slurm
 JOB_ID=$(sbatch job.slurm | awk '{print $4}')
 echo "JOB_ID=$JOB_ID"
-
-# 5b. Opcional: tentar treino real (somente se o ambiente ja tiver torchrun)
-# JOB_ID=$(sbatch --export=ALL,DEMO_MODE=0,TARGET_SECONDS=240 job.slurm | awk '{print $4}')
-# echo "JOB_ID=$JOB_ID"
 
 # 6. Monitorar
 squeue
