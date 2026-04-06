@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-#                   JOB SLURM - Treino Distribuído Multi-GPU
+#             JOB SLURM - Demonstração Rápida (zero instalação)
 #                      Cluster TechNE - UFPI
 ###############################################################################
 
@@ -8,7 +8,7 @@ set -euo pipefail
 
 # ─── IDENTIFICAÇÃO DO JOB ───────────────────────────────────────────────────
 # Define o nome do job que aparecerá nos comandos de monitoramento (squeue, sacct)
-#SBATCH --job-name=treino-nn
+#SBATCH --job-name=demo-nn
 
 # ─── PARTIÇÃO ───────────────────────────────────────────────────────────────
 # Seleciona a fila/partição onde o job será executado.
@@ -22,15 +22,12 @@ set -euo pipefail
 #SBATCH --account=ncad
 
 # ─── NÓ DE EXECUÇÃO ────────────────────────────────────────────────────────
-# Especifica exatamente em qual nó o job deve rodar.
-# A gpunode01 possui: 16 CPUs, ~63GB RAM, 2x GPU NVIDIA L4
-#SBATCH --nodelist=gpunode01
+# Nao fixa nó para facilitar agendamento rapido; o scheduler escolhe automaticamente.
 
 # ─── RECURSOS DE GPU ───────────────────────────────────────────────────────
-# Solicita 2 GPUs genéricas para o job.
-# O SLURM aloca automaticamente as GPUs disponíveis no nó selecionado.
-# Isso é essencial para o treinamento distribuído com DDP (uma GPU por processo).
-#SBATCH --gres=gpu:2
+# Solicita 1 GPU para aumentar chance de agendamento imediato na demo.
+# Se quiser treino DDP depois, altere para gpu:2 e torchrun com 2 processos.
+#SBATCH --gres=gpu:1
 
 # ─── MEMÓRIA ────────────────────────────────────────────────────────────────
 # Reserva 32 GB de memória RAM para o job.
@@ -41,8 +38,8 @@ set -euo pipefail
 # ─── TEMPO MÁXIMO ──────────────────────────────────────────────────────────
 # Define o tempo limite de execução (wall-time) no formato HH:MM:SS.
 # Se o job não terminar nesse tempo, ele será cancelado automaticamente pelo SLURM.
-# 10 minutos é suficiente para ~5 épocas do CIFAR-10 com 2 GPUs.
-#SBATCH --time=00:10:00
+# 5 minutos e suficiente para uma demonstracao em video.
+#SBATCH --time=00:05:00
 
 # ─── SAÍDAS E LOGS ─────────────────────────────────────────────────────────
 # Redireciona a saída padrão (stdout) para um arquivo de log.
@@ -75,8 +72,12 @@ mkdir -p outputs logs
 # Move logs principais para a pasta logs/ sem depender dela existir no momento do sbatch
 exec > >(tee -a "logs/treino_${SLURM_JOB_ID}.out") 2> >(tee -a "logs/treino_${SLURM_JOB_ID}.err" >&2)
 
-# Mostra informações das GPUs disponíveis
-nvidia-smi
+# Mostra informações das GPUs disponíveis (sem quebrar se nao existir nvidia-smi)
+if command -v nvidia-smi >/dev/null 2>&1; then
+	nvidia-smi || true
+else
+	echo "[aviso] nvidia-smi nao encontrado; seguindo sem consulta detalhada da GPU."
+fi
 
 # Garante log "ao vivo" (tail -f) sem buffering excessivo do Python.
 export PYTHONUNBUFFERED=1
@@ -85,7 +86,7 @@ export PYTHONUNBUFFERED=1
 # Sem isso, o PyTorch desse cluster não consegue encontrar as bibliotecas do CUDA!
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:/lib/x86_64-linux-gnu"
 
-# Mantem o job vivo por ~N segundos com logs periodicos (fallback de demonstracao).
+# Mantem o job vivo por ~N segundos com logs periodicos (modo demonstracao).
 keepalive_heartbeat() {
 	local seconds="$1"
 	local start now elapsed
@@ -101,32 +102,29 @@ keepalive_heartbeat() {
 		if command -v nvidia-smi >/dev/null 2>&1; then
 			nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total --format=csv,noheader || true
 		fi
-		sleep 10
+		sleep 5
 	done
 	echo "[keepalive] finalizado"
 }
 
-# ─── EXECUÇÃO DO TREINO ────────────────────────────────────────────────────
-# Usa 'torchrun' para lançar o treinamento distribuído.
+# ─── MODO DEMONSTRAÇÃO (PADRÃO) E MODO TREINO (OPCIONAL) ──────────────────
+# Este job foi configurado para nao exigir instalacao de pacotes.
+# Por padrao, ele roda no modo demo (heartbeat + nvidia-smi), ideal para vídeo.
 #
-# --nproc_per_node=2 → Lança 2 processos no nó (1 por GPU)
-#   O torchrun configura automaticamente as variáveis de ambiente:
-#   - RANK: identificador global do processo (0 ou 1)
-#   - LOCAL_RANK: identificador local no nó (0 ou 1, usado para selecionar GPU)
-#   - WORLD_SIZE: número total de processos (2)
-#   - MASTER_ADDR e MASTER_PORT: endereço para comunicação entre processos
+# Para tentar treino real (se ambiente já tiver PyTorch/torchrun), submeta assim:
+#   sbatch --export=ALL,DEMO_MODE=0,TARGET_SECONDS=240 job.slurm
 #
-# train.py → Script principal de treino que utiliza PyTorch DDP
-#
-# --target-seconds=570 -> Mantem o job ocupado por ~9min30s mesmo se o treino
-# for muito rapido (ajuda a avaliar monitoramento/logs). O wall-time do SLURM
-# continua em 10 minutos.
-TARGET_SECONDS=570
+# DEMO_MODE=1 -> nao depende de python/torch.
+DEMO_MODE="${DEMO_MODE:-1}"
+TARGET_SECONDS="${TARGET_SECONDS:-240}"
 START_TS=$(date +%s)
 
-if command -v torchrun >/dev/null 2>&1; then
+if [ "$DEMO_MODE" = "1" ]; then
+	echo "[info] DEMO_MODE=1 -> execucao sem dependencias Python/PyTorch."
+	keepalive_heartbeat "$TARGET_SECONDS"
+elif command -v torchrun >/dev/null 2>&1 && [ -f "train.py" ]; then
 	set +e
-	torchrun --nproc_per_node=2 train.py --epochs 5 --target-seconds "$TARGET_SECONDS"
+	torchrun --nproc_per_node=1 train.py --epochs 2 --target-seconds "$TARGET_SECONDS"
 	TRAIN_RC=$?
 	set -e
 
@@ -140,7 +138,7 @@ if command -v torchrun >/dev/null 2>&1; then
 		fi
 	fi
 else
-	echo "[aviso] torchrun nao encontrado no ambiente. Rodando modo demonstracao de 10 minutos."
+	echo "[aviso] torchrun/train.py indisponivel. Rodando modo demonstracao."
 	keepalive_heartbeat "$TARGET_SECONDS"
 fi
 
