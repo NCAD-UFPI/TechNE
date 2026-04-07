@@ -138,3 +138,5 @@ Este documento e seus códigos correlatos (como em `/Treino_Teste`) fazem parte 
 
 **INFRA NCAD / UFPI**
 Gerenciamento e Desenvolvimento do Cluster HPC TECHNE
+
+🔗 *Playlist de Acesso:* https://www.youtube.com/playlist?list=PLYy2q2pzKiiFd_l6tgdeAWppmStrg85yW
